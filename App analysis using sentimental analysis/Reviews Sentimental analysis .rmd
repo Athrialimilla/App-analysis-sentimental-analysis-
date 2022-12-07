@@ -1,0 +1,144 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(NLP)
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(e1071)
+library(gmodels)
+```
+## Step-1: Read-In data 
+```{r}
+data<- read.csv("googleplaystore_user_reviews.csv", stringsAsFactors = FALSE)
+reviews <- read.csv("googleplaystore_user_reviews.csv", stringsAsFactors = FALSE)
+```
+## Step-2: Explore and prepare the data 
+```{r}
+str(reviews)
+dim(reviews)
+reviews$Sentiment <- factor(reviews$Sentiment) #Convert Sentiment into factor
+table(reviews$Sentiment) #check sentiments values
+```
+
+### Remove NAN values
+```{r}
+reviews <- na.omit(reviews)
+str(reviews)
+table(reviews$Sentiment) #check sentiments values
+prop.table(table(reviews$Sentiment)) ##check sentiments values prop
+
+
+```
+
+### Data preparation, cleaning and standardizing text data
+```{r}
+reviews_corpus <- VCorpus(VectorSource(reviews$Translated_Review))
+print(reviews_corpus) #Examine the tweeter corpus
+```
+### Text Clean-up	
+```{r}
+reviews_corpus_clean <- tm_map(reviews_corpus, content_transformer(tolower)) #All lower case characters
+reviews_corpus_clean <- tm_map(reviews_corpus_clean, removeNumbers) #Remove numbers from the ewviewa 
+reviews_corpus_clean <- tm_map(reviews_corpus_clean, removeWords, stopwords()) #Remove filler words such as to, and, but and or 
+replacePunctuation <- function(x) { gsub("[[:punct:]]+", " ", x) }
+# + is for at least one time, and if more than one instances are there, replace it with one only
+
+reviews_corpus_clean <- tm_map(reviews_corpus_clean, removePunctuation) #Remove punctuation
+reviews_corpus_clean <- tm_map(reviews_corpus_clean, stemDocument) #Reduce words to their root form in a process called stemming
+reviews_corpus_clean <- tm_map(reviews_corpus_clean, stripWhitespace) #Remove additional white-space
+```
+
+### Splitting text documents into words (tokenization)
+```{r}
+reviews_dtm <- DocumentTermMatrix(reviews_corpus_clean) #Create a document-term sparse matrix
+```
+
+### Creating training and test datasets 
+```{r}
+set.seed(55)
+
+train_sample <- sample(37432, 28074) #Creating training (75%) and test (25%) datasets
+
+reviews_train <- reviews[train_sample, ]
+reviews_test  <- reviews[-train_sample, ]
+    
+prop.table(table(reviews_train$Sentiment)) ##check training set sentiments values prop
+prop.table(table(reviews_test$Sentiment)) ##check test set sentiments values prop
+
+reviews_dtm_train <- reviews_dtm[train_sample,]
+reviews_dtm_test <- reviews_dtm[-train_sample,]
+
+## Storing labels for training and test datasets
+reviews_train_labels <- reviews[train_sample,3]
+reviews_test_labels <- reviews[-train_sample,3]
+```
+
+### Visualize the data -->  word clouds
+```{r}
+#Visualize the data 
+wordcloud(reviews_corpus_clean, min.freq = 50, random.order = FALSE)
+	
+#Visualize cloud from Positive, neutral and negative 
+positive <- subset(reviews_train, Sentiment == "Positive")
+neutral <- subset(reviews_train, Sentiment == "Neutral")
+negative <- subset(reviews_train, Sentiment == "Negative")
+
+wordcloud(positive$Translated_Review, max.words = 40, scale = c(3, 0.5))
+wordcloud(neutral$Translated_Review, max.words = 40, scale = c(3, 0.5))
+wordcloud(negative$Translated_Review, max.words = 40, scale = c(3, 0.5))
+```
+### Creating indicator features for frequent words
+```{r}
+
+# create DTMs with only the frequent terms (i.e., words appearing at least 5 times)
+reviews_freq_words <- findFreqTerms(reviews_dtm_train, 5)
+reviews_dtm_freq_train <- reviews_dtm_train[ , reviews_freq_words]
+reviews_dtm_freq_test <- reviews_dtm_test[ , reviews_freq_words]
+	
+# The sparse matrix are numeric and measure the number of times a word appears in a message. 
+# We need to change this to a categorical variable that simply indicates yes or no depending on whether the word appears at all.
+		
+convert_counts <- function(x) {x <- ifelse(x > 0, "Yes", "No")}
+	
+# apply() convert_counts() to columns of train/test data
+reviews_train <- apply(reviews_dtm_freq_train, MARGIN = 2, convert_counts)
+reviews_test  <- apply(reviews_dtm_freq_test,  MARGIN = 2, convert_counts)
+```
+
+## Step-3: Train a model on the data 
+```{r}
+reviews_classifier <- naiveBayes(reviews_train, reviews_train_labels)
+```
+
+## Step-4: Evaluate the model performance
+```{r}
+reviews_test_pred <- predict(reviews_classifier, reviews_test)
+ 
+# Groundtruth: are stored in reviewsr_test_labels
+# Prediction: are stored in reviews_test_pred
+```
+ 
+```{r}
+CrossTable(reviews_test_pred, reviews_test_labels,
+           prop.chisq = FALSE, prop.t = FALSE, prop.r = FALSE,
+           dnn = c('predicted', 'actual')) #Find agreement between the two vectors.
+```
+Observation: Looking at the table, we can see that a total of  1238 + 1031 + 3953 = 6222 of the 9358 text were correctly classified (66.5%).
+
+## Step-5: Improving the model performance
+```{r}
+#Use Laplace estimator and repeat steps 3-4:
+reviews_classifier2 <- naiveBayes(reviews_train, reviews_train_labels, laplace = 1)
+reviews_test_pred2 <- predict(reviews_classifier2, reviews_test)
+CrossTable(reviews_test_pred2, reviews_test_labels,
+           prop.chisq = FALSE, prop.t = FALSE, prop.r = FALSE,
+           dnn = c('predicted', 'actual'))
+```
+Observation: Looking at the table, we can see that a total of 1307 + 1092 + 3636 = 6035 of the 9358 text were correctly classified (65.5%).
+The percentage has dropped 1%
+

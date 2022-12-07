@@ -1,0 +1,176 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# load all the libraries required 
+library(dplyr)
+library(tidyverse)
+library(stringr)
+library(scales)
+library(ggplot2)
+library(stringi)
+library(psych)
+
+```
+### Read-in Files
+```{r}
+
+
+
+# loading the data
+#google_app_data <- read.csv('Google-Playstore.csv', stringsAsFactors=FALSE, encoding="UTF-8")
+google_app_data <- read.csv('Google-Playstore.csv',stringsAsFactors=FALSE,header=T,nrow=50000, encoding="UTF-8") 
+
+#Getting the overview information of sample data
+str(google_app_data)
+summary(google_app_data$Rating)
+sum(is.na(google_app_data$Rating))
+sapply(google_app_data, function(x) sum(is.na(x)))
+
+# Count the percentage of missing values across the dataset
+sapply(google_app_data, function(x) round(mean(is.na(x))*100, 2))
+
+# drop missing values
+#google_app_data <- na.omit(google_app_data)
+
+# Check the number of missing values across the dataset
+#sapply(google_app_data, function(x) sum(is.na(x)))
+
+#Check for the required features
+#These columns will not be useful for us
+#App ID, minimum and maximum installs, minimum android version, developer ID, website and email, privacy policy link.
+#Removing the above mentioned columns from our data
+data.frame(colnames(google_app_data)) 
+req_google_app_data <- google_app_data[c(3,4,5,6,9,10,11,12,18,19)]
+data.frame(colnames(req_google_app_data)) 
+
+#Getting the overview information of sample data
+str(req_google_app_data)
+summary(req_google_app_data$Category)
+
+#Check for data inconsistency 
+summary(req_google_app_data$Rating)
+
+#There are NA's which have to be omitted
+req_google_app_data <- na.omit(req_google_app_data)
+
+#check for Category variable
+sort(unique(req_google_app_data$Category))
+
+#We see there are two Category variables which seem same Education and Educational
+#We see there are two Category variables which seem same Music and Music & Audio
+req_google_app_data$Category <- str_replace_all(req_google_app_data$Category, "Educational", "Education")
+req_google_app_data$Category <- str_replace_all(req_google_app_data$Category, "Music & Audio", "Music")
+
+#check for length of Category variable
+length(unique(req_google_app_data$Category))
+summary(req_google_app_data$Rating.Count)
+sort(unique(req_google_app_data$Installs))
+sort(unique(req_google_app_data$Free))
+sort(unique(req_google_app_data$Price))
+sort(unique(req_google_app_data$Currency))
+sort(unique(req_google_app_data$Size))
+sort(unique(req_google_app_data$Content.Rating))
+
+
+
+sum(is.na(req_google_app_data$Rating))
+sapply(req_google_app_data, function(x) sum(is.na(x)))
+data.frame(colnames(req_google_app_data)) 
+# Count the percentage of missing values across the dataset
+sapply(req_google_app_data, function(x) round(mean(is.na(x))*100, 2))
+
+
+library(forcats) #forcats for fct_infreq function
+
+ggplot(mutate(req_google_app_data, Category = fct_infreq(Category))) + 
+  geom_bar(aes(x = Category, fill = ..count..)) +
+  coord_flip()
+
+ggplot(mutate(req_google_app_data, Free = fct_infreq(Free))) + 
+  geom_bar(aes(x = Free, fill = ..count..))
+
+ggplot(mutate(req_google_app_data, Installs = fct_infreq(Installs))) + 
+  geom_bar(aes(x = Installs, fill = ..count..))
+
+#library(corrplot)
+#library(RColorBrewer)
+#cate <-cor(mtcars)
+#corrplot(M, type="upper", order="hclust",
+ #        col=brewer.pal(n=8, name="RdYlBu"))
+
+#sort(unique(google_app_data$App.Name))
+
+
+#.isin(['#NAME?'])].sort_values(by='App Name')
+summary(req_google_app_data$Rating)
+hist(req_google_app_data$Rating)
+```
+
+====================================
+Step-2: Explore and prepare the data 
+====================================
+
+
+```{r}
+#Transform Size unit(K,M) to Numeric values
+Value_unity <- ifelse(str_detect(req_google_app_data$Size, 'M'), 1e6, ifelse(str_detect(req_google_app_data$Size, 'K'), 1e3, 1))
+req_google_app_data$Size <- Value_unity * as.numeric(str_remove(req_google_app_data$Size, 'K|M'))
+
+```
+
+Exploring relationships among features using the correlation matrix
+```{r}
+str(req_google_app_data)
+# exploring relationships among features: correlation matrix
+cor(req_google_app_data[c("Rating.Count", "Price","Size" , "Rating")])
+```
+Observations: 
+  1. Rating and Rating.Count: No correlation
+  2. Rating and Price: No correlation
+  3. Rating.Count and Price: No correlation
+  4. 
+SIZE NEED TO BE FIXED
+
+
+Visualizing relationships among features ñ the scatterplot matrix
+```{r}
+# visualing relationships among features: scatterplot matrix
+# pairs(req_google_app_data[c("Rating.Count", "Price","Size" , "Rating")])
+pairs.panels(req_google_app_data[c("Rating.Count", "Price","Size" , "Rating")])
+```
+
+=================================
+Step-3: Train a model on the data 
+=================================
+
+```{r}
+rmodel <- lm(Rating ~ Category + Rating.Count + Installs + Free + Price + Size + Content.Rating, data = req_google_app_data)
+```
+
+
+=======================================
+Step-4: Evaluate the model performance 
+=======================================
+```{r}
+summary(rmodel)
+```
+	Observations: 
+	1. Residuals section provides summary statistics for the errors in our predictions
+		error = actual - predicted 
+	2. Significance level: p value should be lower than 0.001, 0.05, or 0.1 to prove that the effect is significant and not just by chance 
+	3. Multiple R-squared value: Provides a measure of how well our model as a whole explains the values of the dependent variable.
+		Here,Since the R-squared value is 0.5363 --> the model explains nearly 53% of the variation in the dependent variable 
+		
+		Adjusted R-squared value corrects R-squared by penalizing models with a large number of independent variables.
+
+
+=======================================
+Step-5: Imrpoving the model performance
+=======================================
+```{r}
+
+```
+

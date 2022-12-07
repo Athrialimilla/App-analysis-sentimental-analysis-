@@ -1,0 +1,179 @@
+---
+title: "Test"
+author: "Goli"
+date: "4/30/2021"
+output: html_document
+---
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidyverse)
+library(stringr)
+library(scales)
+library(ggplot2)
+library(stringi)
+library(psych)
+library(Boruta)
+library(mlbench) #for data set
+library(caret)
+library(randomForest)
+library(highcharter) 
+library(lubridate)
+library(xts)
+library(aod)
+#Load packages
+
+library(scales)
+#install.packages("arsenal")
+library(arsenal)
+library(pacman)
+library(highcharter) 
+#install.packages("hrbrthemes")
+#library(hrbrthemes)
+p_load(dplyr,tidyverse,tidyr,stringr,ggplot2,visdat,readr,skimr,hrbrthemes,plotly,treemap,forcats,GGally)
+#Increase size of plots from default
+options(repr.plot.width=9, repr.plot.height=8)
+
+```
+
+
+```{r}
+data <- read.csv('googleplaystore.csv',stringsAsFactors=FALSE,header=T, encoding="UTF-8") 
+data <- data[data$Rating != 19, ]  
+data <- data %>% distinct(App,.keep_all=TRUE)
+data.clean <- data %>%
+  mutate(
+    # Eliminate some characters to transform Installs to numeric
+    Installs = gsub("\\+", "", as.character(Installs)),
+    Installs = as.numeric(gsub(",", "", Installs)),
+    Size = gsub("M", "", Size),
+    # Replace cells with k to 0 since it is < 1MB
+    Size = ifelse(grepl("k", Size), 0, as.numeric(Size)),
+    # Transform reviews to numeric
+    Reviews = as.numeric(Reviews),
+    # Remove currency symbol from Price, change it to numeric
+    Price = as.numeric(gsub("\\$", "", as.character(Price))),
+    # Last Updated to date format
+    Last.Updated = mdy(Last.Updated),
+    # Replace "Varies with device" to NA since it is unknown
+    Min.Android.Ver = gsub("Varies with device", NA, Android.Ver),
+    # Keep only version number to 1 decimal
+    Min.Android.Ver = as.numeric(substr(Min.Android.Ver, start = 1, stop = 3)),
+    # Drop old Android version column
+    Android.Ver = NULL
+  ) %>%
+  filter(
+    # Two apps had type as 0 or NA, they will be removed 
+    Type %in% c("Free", "Paid")
+  )
+
+
+
+data.clean$Size[is.na(data.clean$Size)]<-mean(data.clean$Size,na.rm=TRUE)
+sapply(data.clean, function(x) sum(is.na(x)))
+
+data.clean$Type<-replace(data.clean$Type,data.clean$Type=="Free" ,0) 
+data.clean$Type<-replace(data.clean$Type,data.clean$Type=="Paid" ,1) 
+data.clean$Type<- as.numeric(data.clean$Type)
+
+#data.clean <- data.clean[na.omit(data.clean$Rating)]
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r}
+count_category <- unique(data.clean$Category)
+as.data.frame(count_category)
+#count_category <- as.data.frame(count_category)
+length(count_category)
+for(i in 1:length(count_category)){
+  data.clean$temp <- 0
+  data.clean$temp <- replace(data.clean$temp,data.clean$Category==count_category[i],1)
+  data.clean$temp <- as.numeric(data.clean$temp)
+  colnames(data.clean)[13+i] <- count_category[i]
+  } 
+
+```
+```{r}
+Content.Rating <- unique(data.clean$Content.Rating)
+as.data.frame(Content.Rating)
+#count_category <- as.data.frame(count_category)
+length(Content.Rating)
+for(i in 1:length(Content.Rating)){
+  data.clean$temp1 <- 0
+  data.clean$temp1 <- replace(data.clean$temp1,data.clean$Content.Rating==Content.Rating[i],1)
+  data.clean$temp1 <- as.numeric(data.clean$temp1)
+  colnames(data.clean)[46+i] <- Content.Rating[i]
+  } 
+```
+
+```{r}
+#convert all columns to factors
+colnames(data.clean)
+#data.clean$App <- as.factor(data.clean$App)
+#data.clean$Category <- as.factor(data.clean$Category)
+#data.clean$Reviews <- as.factor(data.clean$Reviews)
+#data.clean$Size <- as.factor(data.clean$Size)
+#data.clean$Installs <- as.factor(data.clean$Installs)
+#data.clean$Type <- as.factor(data.clean$Type)
+#data.clean$Price <- as.factor(data.clean$Price)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r}
+#Clean the data and split the dataset
+set.seed(111)
+
+data.required <- subset(data.clean, select = -c(1,2,9,10,11,12,13))
+data.required$Rating <- ifelse(data.required$Rating <= 4,"0", "1")
+data.required$Rating <- as.numeric(data.required$Rating)
+index <- createDataPartition(data.required$Rating, p = .70, 
+                             list = FALSE, 
+                             times = 1)
+
+train <- data.required[index,]
+dim(train)
+test <- data.required[-index,]
+dim(test)
+
+```
+
+
+
+```{r}
+#Pass the Data to the model 
+
+mylogit <- glm(Rating ~., data = train, family=binomial)
+rmodel <- lm(Rating ~ .,  data = train)
+summary(rmodel)
+summary(mylogit)
+library(randomForest)
+rmodel <- lm(Rating ~ .,  data = train)
+
+#rf_model <- randomForest(Rating ~., data = train,ntree= 550,mtry=3,keep.forest=TRUE,importance=TRUE)
+#summary(rf_model)
+
+#fitted.results <- predict(mylogit,newdata=test,type='response')
+#fitted.results <- ifelse(fitted.results > 0.5,1,0)
+#misClasificError <- mean(fitted.results != test$Rating)
+#print(paste('Accuracy',1-misClasificError))
+
+```
+
+
+```{r}
+library(ROCR)
+p <- predict(model, newdata=subset(test,select=c(2,3,4,5,6,7,8)), type="response")
+pr <- prediction(p, test$Survived)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf)
+auc <- performance(pr, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+
+
+
+```
